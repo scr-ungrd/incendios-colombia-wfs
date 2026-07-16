@@ -1,5 +1,11 @@
 # 🔥 Dashboard de incendios en Colombia
 
+> Este repositorio es una copia sincronizada del proyecto original desarrollado por
+> [@jorgealpala](https://github.com/jorgealpala) en
+> [jorgealpala/incendios-colombia-wfs](https://github.com/jorgealpala/incendios-colombia-wfs).
+> Un workflow (`.github/workflows/sync-upstream.yml`) trae automáticamente los cambios
+> del repositorio original hacia este.
+
 Visor interactivo de incendios en Colombia a partir de los datos de
 **OroraTech WildFire Solution**. Construido con Streamlit + Folium.
 
