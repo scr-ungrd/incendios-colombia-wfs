@@ -26,8 +26,8 @@ CARPETA = Path(r"C:\Users\MSI\Downloads\incendios-colombia-wfs\data\2025")
 
 # True  = solo muestra que haria, sin tocar nada (recomendado la primera vez)
 # False = aplica los cambios de verdad
-#SIMULAR = True
-SIMULAR = False
+SIMULAR = True
+#SIMULAR = False
 # ----------------------------------------------------------------------
 
 

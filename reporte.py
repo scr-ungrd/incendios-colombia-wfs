@@ -121,7 +121,9 @@ COLOR_ANIO = {a: PALETA_ANIOS[i % len(PALETA_ANIOS)]
               for i, a in enumerate(range(2019, 2031))}
 
 # --- Clasificacion del mapa nacional (consistente con el dashboard) ---
-RANGOS_TECNICOS = [0, 100, 500, 1500, 4000, 8000]
+# 5 bordes inferiores; el nivel superior (Critico) es abierto (>= 4000) y se
+# cierra con el maximo real del periodo. Ver nota en app.py.
+RANGOS_TECNICOS = [0, 100, 500, 1500, 4000]
 ETIQUETAS_ALERTA = ["Bajo", "Moderado", "Alto", "Muy alto", "Crítico"]
 
 def jenks_breaks(valores, n_clases=5):
@@ -166,8 +168,10 @@ def calcular_cortes(vals, metodo):
     import numpy as np
     vmin, vmax = float(vals.min()), float(vals.max())
     if metodo == "tecnicos":
-        cortes = [c for c in RANGOS_TECNICOS if c < vmax]
-        cortes = cortes + [vmax] if (not cortes or cortes[-1] < vmax) else cortes
+        # 5 niveles: bordes inferiores fijos + nivel superior ABIERTO (se cierra
+        # con el maximo real). Coincide con calcular_cortes de app.py.
+        inf = [c for c in RANGOS_TECNICOS if c < vmax] or [RANGOS_TECNICOS[0]]
+        cortes = inf + [max(vmax, inf[-1] + 1)]
         if cortes[0] > vmin:
             cortes = [vmin] + cortes
         return [float(c) for c in sorted(set(cortes))]

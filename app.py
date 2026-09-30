@@ -34,6 +34,16 @@ F_CSV     = DIR_PROC / "incendios.csv"
 F_DEPTOS = DIR_PROC / "departamentos_simplificado.geojson"
 F_MUNIS  = DIR_PROC / "municipios_simplificado.geojson"
 
+# --- Mapa base (tiles) ---
+# CARTO (cartodbpositron) pasó a exigir API key al servirse desde dominios como
+# streamlit.app, mostrando la marca de agua "API KEY REQUIRED". Usamos el
+# basemap claro de Esri (World Light Gray), gratuito y sin clave, que conserva
+# el mismo estilo limpio. Centralizado aquí para que los 3 mapas usen el mismo.
+TILES_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+             "Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}")
+TILES_ATTR = ("Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ · "
+              "Datos © OpenStreetMap contributors")
+
 # --- confidence (unica metrica): valor numerico -> color en escala verde->rojo ---
 ORDEN_CONF = ["0.0", "0.2", "0.4", "0.6", "0.8", "1.0"]
 COLOR_CONF = {
@@ -67,7 +77,13 @@ def escala_color_anios(anios):
 
 # --- Clasificacion del mapa nacional: rangos tecnicos y Jenks ---
 # Umbrales tecnicos (niveles de alerta) definidos con criterio institucional.
-RANGOS_TECNICOS = [0, 100, 500, 1500, 4000, 8000]
+# Son los 5 BORDES INFERIORES de los 5 niveles (Bajo..Critico). El nivel
+# superior (Critico) es ABIERTO: >= 4000. Su cierre se calcula con el maximo
+# real del periodo, asi el mapa funciona igual para "Todos los años" (valores
+# acumulados grandes) que para un solo mes, sin crear una clase extra sin
+# etiqueta. Los 4 cortes internos (100, 500, 1500, 4000) son FIJOS y por eso
+# comparables en el tiempo.
+RANGOS_TECNICOS = [0, 100, 500, 1500, 4000]
 ETIQUETAS_ALERTA = ["Bajo", "Moderado", "Alto", "Muy alto", "Crítico"]
 
 def jenks_breaks(valores, n_clases=5):
@@ -112,9 +128,13 @@ def calcular_cortes(vals, metodo):
     import numpy as np
     vmin, vmax = float(vals.min()), float(vals.max())
     if metodo == "Rangos técnicos (alerta)":
-        # Recortar los umbrales al rango real para que folium no falle
-        cortes = [c for c in RANGOS_TECNICOS if c < vmax]
-        cortes = cortes + [vmax] if cortes[-1] < vmax else cortes
+        # 5 niveles de alerta con bordes inferiores fijos y nivel superior
+        # ABIERTO. Se toman los umbrales por debajo del maximo y se cierra la
+        # escala con el maximo real: asi siempre hay a lo sumo 5 clases (una por
+        # etiqueta) y nunca sobra una sin nombre. 'or [RANGOS_TECNICOS[0]]' cubre
+        # el caso vmax<=0 (todo en 0) evitando IndexError.
+        inf = [c for c in RANGOS_TECNICOS if c < vmax] or [RANGOS_TECNICOS[0]]
+        cortes = inf + [max(vmax, inf[-1] + 1)]
         if cortes[0] > vmin:
             cortes = [vmin] + cortes
         return [float(c) for c in sorted(set(cortes))]
@@ -209,13 +229,10 @@ sel_anio = st.sidebar.selectbox(
 
 # Segun el año elegido, definir el rango por defecto del calendario
 if sel_anio == "Todos los años":
-    # Rango por defecto institucional: 01/01/2024 a 31/05/2026,
-    # siempre acotado a lo que realmente exista en los datos.
-    ini_def = max(dt.date(2023, 1, 1), fmin_d)
-    fin_def = min(dt.date(2026, 5, 31), fmax_d)
-    if ini_def > fin_def:        # por si los datos no alcanzan ese rango
-        ini_def, fin_def = fmin_d, fmax_d
-    rango_def = (ini_def, fin_def)
+    # "Todos los años" = todo el dataset disponible (de la fecha mas antigua a la
+    # mas reciente). Asi el visor muestra la serie completa (2019-2026 y lo que se
+    # agregue en el futuro) sin topes fijos que oculten años.
+    rango_def = (fmin_d, fmax_d)
 else:
     a = int(sel_anio)
     ini_a = max(dt.date(a, 1, 1), fmin_d)
@@ -412,7 +429,7 @@ if nivel == "Nacional":
     # folium exige bins crecientes que cubran min..max y al menos 3 cortes
     usa_bins = (len(cortes) >= 3 and cortes[0] <= vals.min() and cortes[-1] >= vals.max())
 
-    m = folium.Map(location=[4.6, -74.1], zoom_start=5, tiles="cartodbpositron")
+    m = folium.Map(location=[4.6, -74.1], zoom_start=5, tiles=TILES_URL, attr=TILES_ATTR)
     choro = folium.Choropleth(
         geo_data=gj_deptos, data=conteo,
         key_on="feature.properties.DeNombre",
@@ -440,8 +457,11 @@ if nivel == "Nacional":
         for i in range(len(cortes) - 1):
             ini, fin = cortes[i], cortes[i + 1]
             col = paleta[i] if i < len(paleta) else paleta[-1]
+            es_ultimo = (i == len(cortes) - 2)
             if es_tecnico and i < len(ETIQUETAS_ALERTA):
-                txt = f"{ETIQUETAS_ALERTA[i]} ({ini:,.0f}–{fin:,.0f})"
+                # El nivel superior (Crítico) es abierto: se muestra como "≥ ini".
+                txt = (f"{ETIQUETAS_ALERTA[i]} (≥ {ini:,.0f})" if es_ultimo
+                       else f"{ETIQUETAS_ALERTA[i]} ({ini:,.0f}–{fin:,.0f})")
             else:
                 txt = f"{ini:,.0f} – {fin:,.0f}"
             items.append(
@@ -464,7 +484,7 @@ if nivel == "Nacional":
 elif nivel == "Departamental":
     sub = datos.dropna(subset=["lat", "lon"])
     centro = [sub["lat"].mean(), sub["lon"].mean()] if len(sub) else [4.6, -74.1]
-    m = folium.Map(location=centro, zoom_start=8, tiles="cartodbpositron")
+    m = folium.Map(location=centro, zoom_start=8, tiles=TILES_URL, attr=TILES_ATTR)
     # 1) Heatmap primero (capa de fondo)
     if len(sub):
         HeatMap(sub[["lat", "lon"]].values.tolist(), radius=12, blur=18, min_opacity=0.3).add_to(m)
@@ -539,7 +559,7 @@ else:  # Municipal
              "muchos). Solo puntos: muestra cada incendio sin agrupar. "
              "Mapa de calor: densidad de concentración.")
 
-    m = folium.Map(location=centro, zoom_start=11, tiles="cartodbpositron")
+    m = folium.Map(location=centro, zoom_start=11, tiles=TILES_URL, attr=TILES_ATTR)
     contorno_muni(st.session_state.municipio).add_to(m)
 
     if modo_vis == "Mapa de calor":
@@ -690,13 +710,13 @@ if datos["fecha"].notna().any():
         # Promedio movil de 7 dias
         diaria["media7"] = diaria["eventos"].rolling(7, min_periods=1, center=True).mean()
 
-        base = alt.Chart(diaria).encode(
+        base_dia = alt.Chart(diaria).encode(
             x=alt.X("dia:T", title="Fecha"))
-        linea_dia = base.mark_line(color="#bdc3c7", opacity=0.8).encode(
+        linea_dia = base_dia.mark_line(color="#bdc3c7", opacity=0.8).encode(
             y=alt.Y("eventos:Q", title="Eventos"),
             tooltip=[alt.Tooltip("dia:T", title="Día"),
                      alt.Tooltip("eventos:Q", title="Eventos")])
-        linea_media = base.mark_line(color="#e74c3c", strokeWidth=2).encode(
+        linea_media = base_dia.mark_line(color="#e74c3c", strokeWidth=2).encode(
             y=alt.Y("media7:Q"),
             tooltip=[alt.Tooltip("dia:T", title="Día"),
                      alt.Tooltip("media7:Q", title="Media 7 días", format=",.1f")])

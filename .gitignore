@@ -1,10 +1,13 @@
 # ====== Datos crudos (NO subir: pesados, solo para preprocesamiento) ======
 # Limites originales DANE (34 MB y 203 MB)
 divipola/
-# GeoJSON de incendios crudos por departamento
-data/2024/
-data/2025/
-data/2026/
+# GeoJSON de incendios crudos por año (2019, 2020, ... 2029).
+# El patron cubre TODAS las carpetas de año sin listarlas una por una y NO
+# afecta a data/processed/ (que no empieza por "20").
+data/20*/
+# Carpetas de respaldo local (copias manuales del dataset)
+data - copia/
+data*copia/
 # Cualquier otro crudo
 *.kml
 *.csv.gz
