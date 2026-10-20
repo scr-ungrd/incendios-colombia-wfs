@@ -28,21 +28,41 @@ mapa** (al hacer clic en un departamento se baja al nivel departamental).
 ```
 incendios-colombia-wfs/
 ├── app.py                  # El dashboard (Streamlit)
-├── preprocesar.py          # Genera los datos procesados (correr 1 vez)
+├── preprocesar.py          # Reprocesa TODO desde cero (datos + límites)
+├── actualizar_2026.py      # Actualización incremental del año en curso
+├── reporte.py              # Módulo que genera el reporte PDF (lo usa app.py)
+├── renombrar_dptos.py      # Normaliza los nombres de los GeoJSON exportados
 ├── requirements.txt
 ├── README.md
-├── divipola/
-│   ├── departamentos.geojson   # Límites DANE (no se suben si pesan mucho)
+├── logo/                   # Logo institucional (UNGRD)
+├── divipola/               # Límites DANE crudos (pesados, no se suben al repo)
+│   ├── departamentos.geojson
 │   └── municipios.geojson
 └── data/
-    ├── 2024/                   # GeoJSON de incendios por año
-    ├── 2025/
-    └── processed/              # <- lo lee el dashboard
-        ├── incendios.parquet
-        ├── incendios.csv
+    ├── 2019/ … 2026/          # GeoJSON de incendios por año (crudos, gitignored)
+    └── processed/             # <- lo único que lee el dashboard
+        ├── incendios.parquet          # tabla principal (se sube a GitHub)
+        ├── incendios.csv              # respaldo local (gitignored)
         ├── departamentos_simplificado.geojson
         └── municipios_simplificado.geojson
 ```
+
+Cobertura actual de datos: **2019 – 2026**.
+
+---
+
+## Scripts
+
+| Script | Qué hace | Cuándo correrlo |
+|---|---|---|
+| `app.py` | El dashboard (Streamlit). Lee `data/processed/`. | Para visualizar. |
+| `preprocesar.py` | Reprocesa **todo** desde cero: spatial join de los incendios contra `divipola/` y genera `data/processed/` (parquet, csv y los dos GeoJSON simplificados). | Al agregar un año nuevo o cuando quieras **regenerar los límites**. |
+| `actualizar_2026.py` | Actualización **incremental** solo del año en curso (`data/2026/`): deduplica por `id` y lo fusiona con los años cerrados. **No** regenera los límites. Rápido (~1 min). | Cada vez que descargas nuevos registros del año en curso. |
+| `reporte.py` | Genera el PDF ejecutivo (lo invoca `app.py`). | No se ejecuta solo. |
+| `renombrar_dptos.py` | Normaliza los nombres de los GeoJSON exportados de OroraTech. Trae `SIMULAR=True` (modo prueba). | Tras exportar archivos nuevos del portal. |
+
+> `preprocesar.py` y `actualizar_2026.py` necesitan la carpeta `divipola/`
+> (límites crudos del DANE) presente localmente.
 
 ---
 
@@ -50,13 +70,29 @@ incendios-colombia-wfs/
 
 ```bash
 pip install -r requirements.txt
-
-# 1. Generar los datos procesados (solo cuando agregas/cambias datos)
-python preprocesar.py
-
-# 2. Lanzar el dashboard
-streamlit run app.py
 ```
+
+**Visualizar el dashboard:**
+
+```bash
+python -m streamlit run app.py
+```
+
+**Actualizar los datos del año en curso** (lo más frecuente): coloca los nuevos
+GeoJSON en `data/2026/` y corre:
+
+```bash
+python actualizar_2026.py
+```
+
+**Reproceso completo** (agregar un año nuevo o regenerar los límites):
+
+```bash
+python preprocesar.py
+```
+
+Tras actualizar los datos, en la app desplegada pulsa **🔄 Recargar datos**
+(o *Reboot app* en Streamlit Cloud) para que tome el `parquet` nuevo.
 
 ---
 
@@ -69,24 +105,21 @@ streamlit run app.py
 
 ### Qué subir a GitHub
 
-El dashboard **solo necesita la carpeta `data/processed/`** (unos ~14 MB).
-Los GeoJSON crudos de incendios y los límites DIVIPOLA sin simplificar son
-pesados; puedes mantenerlos fuera del repo con un `.gitignore`:
+El dashboard **solo necesita `data/processed/`**: el `incendios.parquet`
+(~35 MB) y los dos GeoJSON simplificados. El `incendios.csv` (respaldo legible,
+>100 MB) **no** se sube. Los GeoJSON crudos de incendios y los límites DIVIPOLA
+sin simplificar son pesados y tampoco van al repo. El `.gitignore` del proyecto
+ya está configurado así:
 
 ```gitignore
-# Datos crudos y límites pesados (no necesarios para el dashboard)
-divipola/municipios.geojson
-divipola/departamentos.geojson
-data/2024/*.geojson
-data/2025/*.geojson
-
-# Mantener los procesados (descomenta la línea siguiente si tu .gitignore
-# excluye geojson de forma global):
-# !data/processed/*.geojson
+divipola/                  # límites DANE crudos (pesados)
+data/20*/                  # GeoJSON de incendios crudos de todos los años
+*copia/                    # carpetas de respaldo "... - copia"
+data/processed/incendios.csv   # el CSV pesado (se sube solo el parquet)
 ```
 
 > Recuerda: GitHub rechaza archivos de más de 100 MB. El preprocesamiento ya
-> simplifica los límites para que queden muy por debajo de ese límite.
+> simplifica los límites y el `parquet` queda muy por debajo de ese límite.
 
 ---
 
@@ -114,3 +147,7 @@ mostrar con el checkbox de la barra lateral.
 - La asignación de cada incendio a su departamento/municipio se hace por la
   ubicación de su centroide (spatial join), no por el nombre del archivo,
   así que es robusta aunque el campo `sub_area_name` venga vacío.
+- **Mapa base:** Esri *World Light Gray* (gratuito, sin API key).
+- El **mapa nacional** ofrece tres métodos de clasificación: *Cortes naturales
+  (Jenks)*, *Rangos técnicos (alerta)* —5 niveles fijos con el superior abierto
+  (Crítico ≥ 4000)— y *Cuantiles*.

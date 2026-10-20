@@ -5,9 +5,9 @@ divipola/
 # El patron cubre TODAS las carpetas de año sin listarlas una por una y NO
 # afecta a data/processed/ (que no empieza por "20").
 data/20*/
-# Carpetas de respaldo local (copias manuales del dataset)
-data - copia/
-data*copia/
+# Carpetas de respaldo local "... - copia" a cualquier nivel (copias manuales:
+# "data - copia/", "data/processed - copia/", etc.)
+*copia/
 # Cualquier otro crudo
 *.kml
 *.csv.gz
